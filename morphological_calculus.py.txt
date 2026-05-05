@@ -1,45 +1,59 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+import os
 
 # =====================================================================
 # PART 1: CORE MORPHOLOGICAL ALGEBRA (From the Paper)
 # =====================================================================
 
-def extract_gradients(signal):
-    """
-    Step 1: Extract discrete spatial gradients (backward differences)
-    delta_k = mu_k - mu_{k+1}
-    """
-    # Append a 0 at the end to represent the boundary condition (vanishing tail)
-    padded_signal = np.append(signal, 0)
-    # The gradient is the difference between current and next spatial index
-    gradients = padded_signal[:-1] - padded_signal[1:]
-    return gradients
-
-def reconstruct_signal(gradients):
-    """
-    Step 3: Reconstruct the spatial signal via backwards integration
-    mu_k = sum_{j=k}^{n} delta_j
-    """
-    # Integrate backwards from the tail to reconstruct the spatial elevation
-    return np.cumsum(gradients[::-1])[::-1]
-
-def morphological_convolution(mu, nu):
+def morphological_convolution_1d(mu, nu):
     """
     The Differential Convolution Algebra (*)
     Filters signal 'mu' using the kernel 'nu' via their generative polynomials.
-    """
-    # Extract gradient arrays (generative polynomial coefficients)
-    drops_mu = extract_gradients(mu)
-    drops_nu = extract_gradients(nu)
     
-    # Convolve the generative arrays (Algebraic Polynomial Multiplication)
-    # Using np.convolve computes this in O(N*M), or FFT convolution for O(N log N)
+    Step 1: Extract discrete spatial gradients (forward drops)
+    Step 2: Convolve the generative arrays
+    Step 3: Reconstruct the signal via backwards integration
+    """
+    drops_mu = -np.diff(np.append(mu, 0))
+    drops_nu = -np.diff(np.append(nu, 0))
+    
     drops_lambda = np.convolve(drops_mu, drops_nu)
     
-    # Reconstruct the filtered signal
-    return reconstruct_signal(drops_lambda)
+    return np.cumsum(drops_lambda[::-1])[::-1]
+
+
+def morphological_convolution_2d(image_matrix, filter_kernel_1d):
+    """
+    Separable 2D Morphological Convolution (With Spatial Alignment)
+    Applies the 1D differential convolution across rows, then columns.
+    """
+    rows, cols = image_matrix.shape
+    
+    # Calculate the spatial delay introduced by the generative polynomial
+    drops_nu = -np.diff(np.append(filter_kernel_1d, 0))
+    delay = (len(drops_nu) - 1) // 2 
+    
+    # Pass 1: Filter across rows and shift left to remove delay
+    row_filtered = np.zeros_like(image_matrix, dtype=float)
+    for i in range(rows):
+        full_conv = morphological_convolution_1d(image_matrix[i, :], filter_kernel_1d)
+        aligned = full_conv[delay : cols + delay]
+        if len(aligned) < cols:
+            aligned = np.pad(aligned, (0, cols - len(aligned)), mode='edge')
+        row_filtered[i, :] = aligned
+        
+    # Pass 2: Filter across columns and shift up to remove delay
+    col_filtered = np.zeros_like(image_matrix, dtype=float)
+    for j in range(cols):
+        full_conv = morphological_convolution_1d(row_filtered[:, j], filter_kernel_1d)
+        aligned = full_conv[delay : rows + delay]
+        if len(aligned) < rows:
+            aligned = np.pad(aligned, (0, rows - len(aligned)), mode='edge')
+        col_filtered[:, j] = aligned
+        
+    return col_filtered
 
 
 # =====================================================================
@@ -49,115 +63,115 @@ def morphological_convolution(mu, nu):
 def generate_paper_plots():
     print("Generating 1D Benchmark Plots for LaTeX paper...")
     
-    # 1. Create a clean structural edge (Step function / Plateau)
-    N = 100
-    clean_signal = np.zeros(N)
-    clean_signal[20:80] = 5.0 # Structural plateau
-    
-    # 2. Add Additive White Gaussian Noise (AWGN)
-    np.random.seed(42)
-    noise = np.random.normal(0, 0.5, N)
-    noisy_signal = clean_signal + noise
-    
-    # 3. Define a Morphological Filter Kernel (Smoothing Mask)
-    # A simple uniform mask acts as a low-pass structural filter
-    kernel = np.ones(5) / 5.0 
-    
-    # 4. Apply our custom Morphological Convolution
-    filtered_signal = morphological_convolution(noisy_signal, kernel)
-    
-    # 5. Plot and Save (These match the placeholders in your LaTeX file)
-    plt.figure(figsize=(6, 4))
-    plt.plot(noisy_signal, color='red', label='Noisy Input $\mu_{noisy}$')
-    plt.plot(clean_signal, color='black', linestyle='dashed', label='Ground Truth')
-    plt.title("Input Signal Corrupted by AWGN")
-    plt.xlabel("Spatial Index $k$")
-    plt.ylabel("Elevation $\mu_k$")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig("example-image-a.pdf") # Saves directly for LaTeX
-    plt.close()
+    # 1. Generate a valid morphological signal (monotonically decreasing structural steps)
+    mu_clean = np.concatenate([np.full(50, 100), np.full(50, 60), np.full(50, 20), np.full(50, 0)])
+    x_indices = np.arange(len(mu_clean))
 
-    plt.figure(figsize=(6, 4))
-    # Note: Convolution increases spatial support by len(kernel)-1, so we trim for plotting
-    trim_offset = len(kernel) // 2
-    plt.plot(filtered_signal[trim_offset:N+trim_offset], color='green', label='Filtered Output $\mu \star \\nu$')
-    plt.plot(clean_signal, color='black', linestyle='dashed', label='Ground Truth')
-    plt.title("Reconstruction via Morphological Convolution ($\star$)")
-    plt.xlabel("Spatial Index $k$")
-    plt.ylabel("Elevation $\lambda_k$")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig("example-image-b.pdf") # Saves directly for LaTeX
-    plt.close()
+    # 2. Add Additive White Gaussian Noise (AWGN)
+    np.random.seed(42) # For reproducibility
+    noise = np.random.normal(0, 5, len(mu_clean))
+    mu_noisy = mu_clean + noise
+
+    # 3. Define the symmetric generative polynomial filter [4, 3, 1] -> gradients [1, 2, 1]
+    filter_kernel = np.array([4, 3, 1])
+
+    # Calculate spatial delay and the normalization constant (sum of gradients)
+    drops_nu = -np.diff(np.append(filter_kernel, 0))
+    delay = (len(drops_nu) - 1) // 2
+    kernel_sum = np.sum(drops_nu)
+
+    # 4. Apply the filter and align the spatial delay
+    mu_filtered_raw = morphological_convolution_1d(mu_noisy, filter_kernel)
+    mu_filtered_aligned = mu_filtered_raw[delay : len(mu_noisy) + delay]
+
+    # Normalize back to the original elevation scale
+    mu_filtered = mu_filtered_aligned / kernel_sum
+
+    # 5. Visualization: The Overlaid Plot
+    plt.figure(figsize=(10, 5))
     
-    print("Saved 'example-image-a.pdf' and 'example-image-b.pdf'.")
+    plt.plot(x_indices, mu_noisy, color='gray', alpha=0.5, label='Noisy Input (AWGN)', linewidth=2)
+    plt.plot(x_indices, mu_clean, color='black', linestyle='--', label='Ground Truth Geometry', linewidth=1.5)
+    plt.plot(x_indices, mu_filtered, color='blue', label=r'Morphological Output ($\star$)', linewidth=2.5)
+
+    plt.title("1D Spatial Profile: Algebraic Noise Isolation vs. Edge Preservation")
+    plt.xlabel("Spatial Index (k)")
+    plt.ylabel("Morphological Elevation")
+    plt.legend(loc='upper right')
+    plt.grid(True, linestyle=':', alpha=0.7)
+    
+    plt.tight_layout()
+    plt.savefig("1d_overlaid_signals.pdf", dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved '1d_overlaid_signals.pdf'.")
 
 
 # =====================================================================
 # PART 3: 2D IMAGE PROCESSING (Separable Application)
 # =====================================================================
 
-def process_2d_image():
-    print("Running Morphological Convolution on a 2D Image...")
+def process_2d_image(image_path="rabbit.png"):
+    print(f"\nProcessing 2D Image: {image_path}...")
     
-    # 1. Load the local image 'a4'
-    # Make sure 'a4.png' (or 'a4.jpg') is in the same directory as this script.
-    try:
-        img = Image.open("a4.png").convert('L') # Convert to Grayscale
-    except FileNotFoundError:
-        print("Error: Could not find 'a4.png'. Please ensure the image is in the same folder as this script.")
+    if not os.path.exists(image_path):
+        print(f"Error: Could not find '{image_path}'.")
+        print("Please place the image in the same directory or update the filename in the main block.")
         return
-    
-    # Downsample slightly for faster demonstration
-    img = img.resize((256, 256))
-    img_array = np.array(img, dtype=float)
-    
-    # Add some noise to the image
-    noisy_img = img_array + np.random.normal(0, 15.0, img_array.shape)
-    np.clip(noisy_img, 0, 255, out=noisy_img)
-    
-    # 2. Define our 1D Morphological Kernel
-    # A wider mask creates a stronger Gaussian-like blur
-    kernel = np.ones(7) / 7.0
-    
-    # 3. Apply the filter separably (Rows, then Columns)
-    rows, cols = noisy_img.shape
-    filtered_rows = np.zeros_like(noisy_img)
-    final_img = np.zeros_like(noisy_img)
-    
-    # Process each row
-    trim = len(kernel) // 2
-    for i in range(rows):
-        filtered_row = morphological_convolution(noisy_img[i, :], kernel)
-        filtered_rows[i, :] = filtered_row[trim:cols+trim]
-        
-    # Process each column of the row-filtered image
-    for j in range(cols):
-        filtered_col = morphological_convolution(filtered_rows[:, j], kernel)
-        final_img[:, j] = filtered_col[trim:rows+trim]
-        
-    # 4. Display Results
+
+    # Load image and convert to grayscale
+    rabbit_img = Image.open(image_path).convert('L') 
+    image_ground_truth = np.array(rabbit_img, dtype=float)
+
+    # Add AWGN noise
+    np.random.seed(42)
+    noise = np.random.normal(0, 25, image_ground_truth.shape) 
+    image_noisy = np.clip(image_ground_truth + noise, 0, 255)
+
+    # Apply the mathematically valid morphological filter
+    filter_kernel = np.array([4, 3, 1]) 
+    image_filtered_raw = morphological_convolution_2d(image_noisy, filter_kernel)
+
+    # Normalize back to 8-bit image space AFTER the algebra completes
+    image_filtered = np.clip(image_filtered_raw / np.max(image_filtered_raw) * 255, 0, 255)
+
+    # Calculate Residual Error against the GROUND TRUTH
+    residual_map = np.abs(image_ground_truth - image_filtered)
+
+    # --- VISUALIZATION: ZOOMED PATCHES ---
+    # Default coordinates (Update these to the specific feature coordinates for your image)
+    x_start, x_end = 350, 500
+    y_start, y_end = 200, 350
+
+    # Safety check in case the image is smaller than the crop window
+    if y_end > image_ground_truth.shape[0] or x_end > image_ground_truth.shape[1]:
+        print("Warning: Crop window exceeds image dimensions. Adjusting to center crop.")
+        y_start, x_start = image_ground_truth.shape[0]//2 - 75, image_ground_truth.shape[1]//2 - 75
+        y_end, x_end = y_start + 150, x_start + 150
+
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    
-    axes[0].imshow(img_array, cmap='gray')
-    axes[0].set_title("Original Clean Image")
+
+    axes[0].imshow(image_noisy[y_start:y_end, x_start:x_end], cmap='gray', vmin=0, vmax=255)
+    axes[0].set_title("Zoomed Noisy Input")
     axes[0].axis('off')
-    
-    axes[1].imshow(noisy_img, cmap='gray')
-    axes[1].set_title("Noisy Image (AWGN)")
+
+    axes[1].imshow(image_filtered[y_start:y_end, x_start:x_end], cmap='gray', vmin=0, vmax=255)
+    axes[1].set_title(r"Zoomed Morphological Output ($\star$)")
     axes[1].axis('off')
-    
-    axes[2].imshow(final_img, cmap='gray')
-    axes[2].set_title("Filtered by $\star$ Algebra")
+
+    axes[2].imshow(residual_map[y_start:y_end, x_start:x_end], cmap='hot')
+    axes[2].set_title("Zoomed Residual Map")
     axes[2].axis('off')
-    
+
     plt.tight_layout()
-    plt.show()
+    plt.savefig("rabbit_zoomed_final.png", dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved 'rabbit_zoomed_final.png'.")
+
 
 if __name__ == "__main__":
     # Execute Part 2 to generate PDFs for the paper
     generate_paper_plots()
     
     # Execute Part 3 to show the 2D Image application
-    process_2d_image()
+    # Update "rabbit.png" to whatever default image file you push to GitHub
+    process_2d_image(image_path="rabbit.png")
