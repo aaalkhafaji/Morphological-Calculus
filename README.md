@@ -1,24 +1,23 @@
-# Morphological-Calculus
-Python implementation of Morphological Hopf Algebras for Digital Signal Processing.
+# Morphological Network Theory for Digital Signal Processing
 
-# Morphological Hopf Algebras for Digital Signal Processing
+Python implementation of the algebraic synthesis framework for discrete structural filtering and second-order transmission networks.
 
-This repository contains the Python implementation for the paper: **"Morphological Hopf Algebras for Digital Signal Processing: An Algebraic Calculus for Discrete Structural Filtering."**
+## 1. Overview
+This repository contains the official implementation for the framework proposed in:  
+**"Morphological Network Theory for Digital Signal Processing: An Algebraic Synthesis for Discrete Structural Filtering."**
 
-It demonstrates the application of discrete difference operator polynomials and the Morphological Hopf framework to 1D and 2D digital signals, highlighting the framework's capacity for exact mathematical noise isolation and geometric edge preservation.
+By shifting the mathematical representation of digital signals from absolute spatial amplitudes to **Generative Gradient Polynomials**, this framework bridges the gap between discrete combinatorics and physical circuit synthesis. The implementation demonstrates how 1D and 2D signals can be synthesized into hardware-equivalent RLC networks using the Special Linear Group $SL(2, \mathbb{Q}[z])$.
 
-## Files Included
-* `morphological_calculus.py`: The core implementation of the Spatial Calculus ($\partial_z$ and $\mathcal{J}$) and the Discrete Morphological Convolution ($\star$).
-* `rabbit.png` (or `a4.png`): A sample 2D image used to demonstrate the separable 2D filtering application.
+## 2. Key Technical Features
+* **Differential Convolution Algebra ($\star$):** A linear shift-invariant (LSI) filtering engine that operates on discrete spatial gradients to isolate noise while preserving structural edges.
+* **$SL(2)$ Transmission Synthesis:** Automated construction of $2 \times 2$ ABCD matrices to model the cascading of flow (series) and accumulation (shunt) morphological signals.
+* **Chromatic Resonance Decoupling:** An algebraic solver for the **Chromatic Resonance Conjecture**, factorizing 3rd-order color-space polynomials into 1st-order structural **Luminance** and 2nd-order complex **Chrominance**.
+* **Empirical Suite:** Benchmarking tools for 1D structural profiles and 2D separable image filtering with automated residual error map generation.
 
-## Requirements
-To run this code, you will need Python 3.12+ and the following standard scientific libraries:
-* `numpy`
-* `matplotlib`
-* `Pillow` (PIL)
-
-## How to Run
-Simply execute the script from your terminal or command prompt:
+## 3. Installation & Requirements
+The framework is optimized for **Python 3.10+**. Clone the repository and install the required scientific libraries:
 
 ```bash
-python morphological_calculus.py
+git clone [https://github.com/aaalkhafaji/Morphological-Calculus.git](https://github.com/aaalkhafaji/Morphological-Calculus.git)
+cd Morphological-Calculus
+pip install numpy matplotlib pillow
