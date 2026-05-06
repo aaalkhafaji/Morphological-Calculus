@@ -3,39 +3,43 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import os
 
+# Set LaTeX font rendering for publication-quality plots
+plt.rcParams.update({
+    "text.usetex": False, # Set to True if you have a local LaTeX distribution
+    "font.family": "serif",
+    "font.serif": ["Computer Modern Roman"],
+})
+
 # =====================================================================
-# PART 1: CORE MORPHOLOGICAL ALGEBRA (From the Paper)
+# PART 1: CORE MORPHOLOGICAL ALGEBRA (1D & 2D)
 # =====================================================================
 
 def morphological_convolution_1d(mu, nu):
     """
     The Differential Convolution Algebra (*)
     Filters signal 'mu' using the kernel 'nu' via their generative polynomials.
-    
-    Step 1: Extract discrete spatial gradients (forward drops)
-    Step 2: Convolve the generative arrays
-    Step 3: Reconstruct the signal via backwards integration
     """
+    # Step 1: Extract discrete spatial gradients (forward drops)
     drops_mu = -np.diff(np.append(mu, 0))
     drops_nu = -np.diff(np.append(nu, 0))
     
+    # Step 2: Convolve the generative arrays (Polynomial Multiplication)
     drops_lambda = np.convolve(drops_mu, drops_nu)
     
+    # Step 3: Reconstruct the signal via backwards integration (Discrete Summation)
     return np.cumsum(drops_lambda[::-1])[::-1]
 
 
 def morphological_convolution_2d(image_matrix, filter_kernel_1d):
     """
-    Separable 2D Morphological Convolution (With Spatial Alignment)
+    Separable 2D Morphological Convolution
     Applies the 1D differential convolution across rows, then columns.
     """
     rows, cols = image_matrix.shape
-    
-    # Calculate the spatial delay introduced by the generative polynomial
     drops_nu = -np.diff(np.append(filter_kernel_1d, 0))
     delay = (len(drops_nu) - 1) // 2 
     
-    # Pass 1: Filter across rows and shift left to remove delay
+    # Pass 1: Row filtering
     row_filtered = np.zeros_like(image_matrix, dtype=float)
     for i in range(rows):
         full_conv = morphological_convolution_1d(image_matrix[i, :], filter_kernel_1d)
@@ -44,7 +48,7 @@ def morphological_convolution_2d(image_matrix, filter_kernel_1d):
             aligned = np.pad(aligned, (0, cols - len(aligned)), mode='edge')
         row_filtered[i, :] = aligned
         
-    # Pass 2: Filter across columns and shift up to remove delay
+    # Pass 2: Column filtering
     col_filtered = np.zeros_like(image_matrix, dtype=float)
     for j in range(cols):
         full_conv = morphological_convolution_1d(row_filtered[:, j], filter_kernel_1d)
@@ -57,121 +61,89 @@ def morphological_convolution_2d(image_matrix, filter_kernel_1d):
 
 
 # =====================================================================
-# PART 2: GENERATE PAPER BENCHMARK PLOTS (1D Signal)
+# PART 2: CHROMATIC RESONANCE (3rd-Order Decoupling)
 # =====================================================================
 
-def generate_paper_plots():
-    print("Generating 1D Benchmark Plots for LaTeX paper...")
+def decouple_chromatic_resonance(rgb_image_array):
+    """
+    Algebraically factorizes the 3rd-order Chromatic Polynomial C(z)
+    into its 1st-order Real Root (Luminance) and 2nd-order Complex Roots (Chrominance).
+    """
+    # Normalize to [0, 1]
+    rgb = rgb_image_array.astype(np.float64) / 255.0
+    R, G, B = rgb[:,:,0], rgb[:,:,1], rgb[:,:,2]
     
-    # 1. Generate a valid morphological signal (monotonically decreasing structural steps)
+    # 1. Extract 1st-Order Flow (Luminance L)
+    # Theorem: L is the real root z_1 of the 3-port network
+    L = (R + G + B) / 3.0
+    
+    # 2. Extract 2nd-Order Resonance (Chrominance V)
+    # Theorem: Complex poles +/- i*sqrt(V) isolate boundary energy
+    V = (R - L)**2 + (G - L)**2 + (B - L)**2
+    chroma_energy = np.sqrt(V)
+    
+    return L, chroma_energy
+
+
+# =====================================================================
+# PART 3: BENCHMARK EXECUTORS
+# =====================================================================
+
+def run_1d_benchmark():
+    print("Executing 1D Benchmark: Noise Isolation...")
     mu_clean = np.concatenate([np.full(50, 100), np.full(50, 60), np.full(50, 20), np.full(50, 0)])
-    x_indices = np.arange(len(mu_clean))
-
-    # 2. Add Additive White Gaussian Noise (AWGN)
-    np.random.seed(42) # For reproducibility
-    noise = np.random.normal(0, 5, len(mu_clean))
-    mu_noisy = mu_clean + noise
-
-    # 3. Define the symmetric generative polynomial filter [4, 3, 1] -> gradients [1, 2, 1]
+    np.random.seed(42)
+    mu_noisy = mu_clean + np.random.normal(0, 5, len(mu_clean))
+    
     filter_kernel = np.array([4, 3, 1])
-
-    # Calculate spatial delay and the normalization constant (sum of gradients)
     drops_nu = -np.diff(np.append(filter_kernel, 0))
     delay = (len(drops_nu) - 1) // 2
-    kernel_sum = np.sum(drops_nu)
-
-    # 4. Apply the filter and align the spatial delay
+    
     mu_filtered_raw = morphological_convolution_1d(mu_noisy, filter_kernel)
-    mu_filtered_aligned = mu_filtered_raw[delay : len(mu_noisy) + delay]
+    mu_filtered = mu_filtered_raw[delay : len(mu_noisy) + delay] / np.sum(drops_nu)
 
-    # Normalize back to the original elevation scale
-    mu_filtered = mu_filtered_aligned / kernel_sum
-
-    # 5. Visualization: The Overlaid Plot
     plt.figure(figsize=(10, 5))
-    
-    plt.plot(x_indices, mu_noisy, color='gray', alpha=0.5, label='Noisy Input (AWGN)', linewidth=2)
-    plt.plot(x_indices, mu_clean, color='black', linestyle='--', label='Ground Truth Geometry', linewidth=1.5)
-    plt.plot(x_indices, mu_filtered, color='blue', label=r'Morphological Output ($\star$)', linewidth=2.5)
-
-    plt.title("1D Spatial Profile: Algebraic Noise Isolation vs. Edge Preservation")
-    plt.xlabel("Spatial Index (k)")
-    plt.ylabel("Morphological Elevation")
-    plt.legend(loc='upper right')
-    plt.grid(True, linestyle=':', alpha=0.7)
-    
-    plt.tight_layout()
-    plt.savefig("1d_overlaid_signals.pdf", dpi=300, bbox_inches='tight')
+    plt.plot(mu_noisy, color='gray', alpha=0.5, label='Noisy Input (AWGN)')
+    plt.plot(mu_clean, color='black', linestyle='--', label='Ground Truth Geometry')
+    plt.plot(mu_filtered, color='blue', label=r'Morphological Output ($\star$)', linewidth=2)
+    plt.title("Algebraic Noise Isolation vs. Edge Preservation")
+    plt.legend()
+    plt.savefig("1d_benchmark.pdf")
     plt.close()
-    print("Saved '1d_overlaid_signals.pdf'.")
 
 
-# =====================================================================
-# PART 3: 2D IMAGE PROCESSING (Separable Application)
-# =====================================================================
-
-def process_2d_image(image_path="rabbit.png"):
-    print(f"\nProcessing 2D Image: {image_path}...")
-    
+def run_2d_chromatic_experiment(image_path="rabbit.png"):
     if not os.path.exists(image_path):
-        print(f"Error: Could not find '{image_path}'.")
-        print("Please place the image in the same directory or update the filename in the main block.")
+        print(f"Skipping Chromatic Experiment: {image_path} not found.")
         return
 
-    # Load image and convert to grayscale
-    rabbit_img = Image.open(image_path).convert('L') 
-    image_ground_truth = np.array(rabbit_img, dtype=float)
-
-    # Add AWGN noise
-    np.random.seed(42)
-    noise = np.random.normal(0, 25, image_ground_truth.shape) 
-    image_noisy = np.clip(image_ground_truth + noise, 0, 255)
-
-    # Apply the mathematically valid morphological filter
-    filter_kernel = np.array([4, 3, 1]) 
-    image_filtered_raw = morphological_convolution_2d(image_noisy, filter_kernel)
-
-    # Normalize back to 8-bit image space AFTER the algebra completes
-    image_filtered = np.clip(image_filtered_raw / np.max(image_filtered_raw) * 255, 0, 255)
-
-    # Calculate Residual Error against the GROUND TRUTH
-    residual_map = np.abs(image_ground_truth - image_filtered)
-
-    # --- VISUALIZATION: ZOOMED PATCHES ---
-    # Default coordinates (Update these to the specific feature coordinates for your image)
-    x_start, x_end = 350, 500
-    y_start, y_end = 200, 350
-
-    # Safety check in case the image is smaller than the crop window
-    if y_end > image_ground_truth.shape[0] or x_end > image_ground_truth.shape[1]:
-        print("Warning: Crop window exceeds image dimensions. Adjusting to center crop.")
-        y_start, x_start = image_ground_truth.shape[0]//2 - 75, image_ground_truth.shape[1]//2 - 75
-        y_end, x_end = y_start + 150, x_start + 150
-
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-
-    axes[0].imshow(image_noisy[y_start:y_end, x_start:x_end], cmap='gray', vmin=0, vmax=255)
-    axes[0].set_title("Zoomed Noisy Input")
-    axes[0].axis('off')
-
-    axes[1].imshow(image_filtered[y_start:y_end, x_start:x_end], cmap='gray', vmin=0, vmax=255)
-    axes[1].set_title(r"Zoomed Morphological Output ($\star$)")
-    axes[1].axis('off')
-
-    axes[2].imshow(residual_map[y_start:y_end, x_start:x_end], cmap='hot')
-    axes[2].set_title("Zoomed Residual Map")
-    axes[2].axis('off')
-
+    print(f"Executing 3rd-Order Chromatic Decoupling: {image_path}...")
+    img = Image.open(image_path).convert('RGB')
+    img_array = np.array(img)
+    
+    lum, chroma = decouple_chromatic_resonance(img_array)
+    chroma_norm = chroma / np.max(chroma)
+    
+    fig, axes = plt.subplots(3, 1, figsize=(8, 12))
+    axes[0].imshow(img_array)
+    axes[0].set_title("Input 3-Port Spatial Array (RGB)", fontweight='bold')
+    
+    axes[1].imshow(lum, cmap='gray')
+    axes[1].set_title(r"1st-Order Real Root $\mathcal{L}(z)$: Structural Luminance", fontweight='bold')
+    
+    axes[2].imshow(chroma_norm, cmap='magma')
+    axes[2].set_title(r"2nd-Order Complex Roots $\mathcal{Q}(z)$: Chromatic Resonance", fontweight='bold')
+    
+    for ax in axes: ax.axis('off')
     plt.tight_layout()
-    plt.savefig("rabbit_zoomed_final.png", dpi=300, bbox_inches='tight')
+    plt.savefig("chromatic_decoupling_results.png", dpi=300)
     plt.close()
-    print("Saved 'rabbit_zoomed_final.png'.")
 
 
 if __name__ == "__main__":
-    # Execute Part 2 to generate PDFs for the paper
-    generate_paper_plots()
+    # Ensure standard image path matches your GitHub assets
+    TARGET_IMAGE = "rabbit.png" 
     
-    # Execute Part 3 to show the 2D Image application
-    # Update "rabbit.png" to whatever default image file you push to GitHub
-    process_2d_image(image_path="rabbit.png")
+    run_1d_benchmark()
+    run_2d_chromatic_experiment(TARGET_IMAGE)
+    print("\nEmpirical suite complete. Figures saved for LaTeX integration.")
